@@ -16,8 +16,8 @@ st.set_page_config(
 @st.cache_resource
 def init_clients():
     supabase = create_client(
-        os.getenv("SUPABASE_URL"),
-        os.getenv("SUPABASE_KEY")
+        st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL"),
+        st.secrets.get("SUPABASE_KEY") or os.getenv("SUPABASE_KEY")
     )
     openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     return supabase, openai_client
@@ -153,8 +153,8 @@ elif page == "Auction Value Score":
     @st.cache_data
     def load_all_players():
         _supabase = create_client(
-            os.getenv("SUPABASE_URL"),
-            os.getenv("SUPABASE_KEY")
+            st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL"),
+            st.secrets.get("SUPABASE_KEY") or os.getenv("SUPABASE_KEY")
         )
         result = _supabase.table('player_summary')\
             .select("*")\
