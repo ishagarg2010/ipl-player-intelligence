@@ -30,7 +30,7 @@ st.caption("Ask questions about IPL players in plain English")
 
 # Sidebar
 st.sidebar.title("Navigation")
-page = st.sidebar.radio("Go to", ["AI Analyst", "Player Dashboard", "Auction Value Score"])
+page = st.sidebar.radio("Go to", ["AI Analyst", "Auction Value Score", "Bowler Dashboard", "Batsman Dashboard"])
 
 if page == "AI Analyst":
     st.header("Ask the AI Analyst")
@@ -58,13 +58,19 @@ if page == "AI Analyst":
     if question:
         with st.spinner("Analysing..."):
             # Fetch relevant data
-            result = supabase.table('player_summary')\
+            batting_result = supabase.table('batsman_summary')\
                 .select("*")\
                 .order('total_runs', desc=True)\
                 .limit(20)\
                 .execute()
-            
-            players_df = pd.DataFrame(result.data)
+            bowling_result = supabase.table('bowler_summary')\
+                .select("*")\
+                .order('wickets', desc=True)\
+                .limit(20)\
+                .execute()
+            batting_df = pd.DataFrame(batting_result.data)
+            bowlers_df = pd.DataFrame(bowling_result.data)
+
             
             # Get AI insight
             response = openai_client.chat.completions.create(
@@ -74,13 +80,14 @@ if page == "AI Analyst":
                         "role": "system",
                         "content": """You are an expert IPL cricket analyst. 
                         Answer questions using the data provided. 
-                        Be specific with numbers. Keep answers under 150 words."""
+                        Be specific with numbers. Keep answers under 150 words.
+                        You have access to both batting and bowling data."""
                     },
                     {
                         "role": "user",
-                        "content": f"""Player data:{players_df.to_string(index=False)}
-
-        Question: {question}"""
+                        "content": f"""BATTING DATA (top 20 by runs):{batting_df.to_string(index=False)}
+                                        BOWLING DATA (top 20 by wickets):{bowlers_df.to_string(index=False)}
+                                        Question: {question}"""
                     }
                 ]
     )
@@ -92,29 +99,33 @@ if page == "AI Analyst":
         st.info(insight)
         
         st.markdown("### 📊 Supporting Data")
-        st.dataframe(players_df, use_container_width=True)
+        tab1, tab2 = st.tabs(["Batting", "Bowling"])
+        with tab1:
+            st.dataframe(batting_df, use_container_width=True)
+        with tab2:
+            st.dataframe(bowlers_df, use_container_width=True)
 
-elif page == "Player Dashboard":
-    st.header("Player Performance Dashboard")
+elif page == "Batsman Dashboard":
+    st.header("Batsman Performance Dashboard")
     
     # Load data
     @st.cache_data
     def load_players():
-        result = supabase.table('player_summary')\
+        result = supabase.table('batsman_summary')\
             .select("*")\
             .order('total_runs', desc=True)\
             .limit(50)\
             .execute()
         return pd.DataFrame(result.data)
     
-    players_df = load_players()
+    batting_df = load_players()
     
     ## Debug line — remove later
-    #st.write(f"Rows loaded: {len(players_df)}")
+    #st.write(f"Rows loaded: {len(batting_df)}")
 
     # Top run scorers chart
     st.subheader("Top 10 Run Scorers")
-    top10 = players_df.head(10)
+    top10 = batting_df.head(10)
     fig1 = px.bar(
         top10,
         x='player',
@@ -129,7 +140,7 @@ elif page == "Player Dashboard":
     # Strike rate vs runs scatter
     st.subheader("Strike Rate vs Total Runs")
     fig2 = px.scatter(
-        players_df,
+        batting_df,
         x='total_runs',
         y='strike_rate',
         hover_name='player',
@@ -141,7 +152,7 @@ elif page == "Player Dashboard":
     
     # Raw data table
     st.subheader("Full Player Stats")
-    st.dataframe(players_df, use_container_width=True)
+    st.dataframe(batting_df, use_container_width=True)
 
 elif page == "Auction Value Score":
     st.header("🏆 IPL Player ROI Index")
@@ -156,13 +167,13 @@ elif page == "Auction Value Score":
             st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL"),
             st.secrets.get("SUPABASE_KEY") or os.getenv("SUPABASE_KEY")
         )
-        result = _supabase.table('player_summary')\
+        result = _supabase.table('batsman_summary')\
             .select("*")\
             .execute()
         return pd.DataFrame(result.data)
     
-    players_df = load_all_players()
-    scored_df = calculate_auction_score(players_df)
+    batting_df = load_all_players()
+    scored_df = calculate_auction_score(batting_df)
     
     # Summary metrics
     col1, col2, col3, col4 = st.columns(4)
@@ -220,6 +231,118 @@ elif page == "Auction Value Score":
     st.subheader("All Players")
     st.dataframe(
         scored_df[['player', 'total_runs', 'strike_rate', 'roi_index', 'tier']]\
+            .reset_index(drop=True),
+        use_container_width=True
+    )
+
+elif page == "Bowler Dashboard":
+    st.header("🎯 Bowler Analysis")
+    st.caption("Economy, wickets, and bowling efficiency across IPL seasons")
+    
+    # Load bowler data
+    @st.cache_data
+    def load_bowlers():
+        _supabase = create_client(
+            st.secrets.get("SUPABASE_URL") or os.getenv("SUPABASE_URL"),
+            st.secrets.get("SUPABASE_KEY") or os.getenv("SUPABASE_KEY")
+        )
+        result = _supabase.table('bowler_summary')\
+            .select("*")\
+            .execute()
+        return pd.DataFrame(result.data)
+    
+    bowlers_df = load_bowlers()
+    
+    # Summary metrics
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Bowlers", len(bowlers_df))
+    with col2:
+        best_economy = bowlers_df.nsmallest(1, 'economy').iloc[0]
+        st.metric("Best Economy", f"{best_economy['economy']}", best_economy['bowler'])
+    with col3:
+        most_wickets = bowlers_df.nlargest(1, 'wickets').iloc[0]
+        st.metric("Most Wickets", int(most_wickets['wickets']), most_wickets['bowler'])
+    with col4:
+        st.metric("Avg Economy", round(bowlers_df['economy'].mean(), 2))
+    
+    # Top wicket takers
+    st.subheader("Top 10 Wicket Takers")
+    top_wickets = bowlers_df.nlargest(10, 'wickets')
+    fig1 = px.bar(
+        top_wickets,
+        x='bowler',
+        y='wickets',
+        color='economy',
+        color_continuous_scale='RdYlGn_r',
+        title='Top 10 Wicket Takers (colour = economy rate)',
+        labels={'economy': 'Economy'}
+    )
+    fig1.update_layout(xaxis_tickangle=-45)
+    st.plotly_chart(fig1, use_container_width=True)
+    
+    # Economy vs wickets scatter
+    st.subheader("Economy vs Wickets")
+    st.caption("Best bowlers are bottom right — low economy, high wickets")
+    top50 = bowlers_df.nlargest(50, 'wickets')
+    fig2 = px.scatter(
+        top50,
+        x='economy',
+        y='wickets',
+        hover_name='bowler',
+        color='bowling_avg',
+        size='overs_bowled',
+        color_continuous_scale='RdYlGn_r',
+        title='Economy vs Wickets — Top 50 Bowlers'
+    )
+    st.plotly_chart(fig2, use_container_width=True)
+    
+    # Best death bowlers
+    st.subheader("Best Economy Bowlers (min 50 overs)")
+    best_economy = bowlers_df[bowlers_df['overs_bowled'] >= 50]\
+        .nsmallest(10, 'economy')
+    fig3 = px.bar(
+        best_economy,
+        x='bowler',
+        y='economy',
+        color='wickets',
+        color_continuous_scale='Blues',
+        title='Best Economy Rate (minimum 50 overs bowled)'
+    )
+    fig3.update_layout(xaxis_tickangle=-45)
+    st.plotly_chart(fig3, use_container_width=True)
+    
+    # Bowler lookup
+    st.subheader("Look up any bowler")
+    bowler_name = st.text_input(
+        "Type a bowler name:", 
+        placeholder="e.g. Jasprit Bumrah"
+    )
+    
+    if bowler_name:
+        match = bowlers_df[bowlers_df['bowler'].str.contains(
+            bowler_name, case=False, na=False
+        )]
+        if len(match) > 0:
+            p = match.iloc[0]
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Wickets", int(p['wickets']))
+            with col2:
+                st.metric("Economy", p['economy'])
+            with col3:
+                st.metric("Bowling Avg", round(p['bowling_avg'], 2))
+            with col4:
+                st.metric("Overs Bowled", p['overs_bowled'])
+        else:
+            st.warning(f"Bowler '{bowler_name}' not found. Try a different spelling.")
+    
+    # Full table
+    st.subheader("All Bowlers")
+    st.dataframe(
+        bowlers_df[['bowler', 'wickets', 'economy', 
+                    'bowling_avg', 'bowling_sr', 'overs_bowled']]\
+            .sort_values('wickets', ascending=False)\
             .reset_index(drop=True),
         use_container_width=True
     )
